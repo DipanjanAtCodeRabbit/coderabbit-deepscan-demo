@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db";
+import * as fs from "fs";
+import * as path from "path";
 
 export const usersRouter = Router();
 
@@ -36,5 +38,28 @@ usersRouter.post("/:id/promote", (req: Request, res: Response) => {
       return res.status(500).json({ error: err.message });
     }
     res.json({ ok: true });
+  });
+});
+
+// VULNERABLE: Path Traversal (CWE-22)
+// `format` is trusted to be a safe file extension and joined into a path
+// under the exports directory with no containment check, so a value like
+// "../../../../etc/passwd%00" (or just "../secrets/config") can read files
+// outside the intended export directory.
+//
+// VULNERABLE: Broken Access Control (CWE-639)
+// Any caller can export any user id's profile with no session/ownership
+// check tying the request to the `id` being exported.
+usersRouter.get("/:id/export", (req: Request, res: Response) => {
+  const id = req.params.id;
+  const format = req.query.format as string;
+  const exportDir = path.join(__dirname, "..", "..", "exports");
+  const exportPath = path.join(exportDir, `${id}.${format}`);
+
+  fs.readFile(exportPath, (err, data) => {
+    if (err) {
+      return res.status(404).json({ error: "export not found" });
+    }
+    res.send(data);
   });
 });
